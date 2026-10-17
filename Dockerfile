@@ -8,6 +8,10 @@ COPY packages ./packages
 RUN npx tsc -p tsconfig.json && npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM node:22-bookworm-slim
+LABEL io.modelcontextprotocol.server.name="io.github.netbka/local-commander-mcp-agent" \
+      org.opencontainers.image.source="https://github.com/netbka/local-commander-mcp-agent" \
+      org.opencontainers.image.description="Self-hosted MCP server for controlled local development access" \
+      org.opencontainers.image.licenses="MIT"
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /workspace /home/node/.local-commander \

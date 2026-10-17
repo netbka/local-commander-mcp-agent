@@ -19,26 +19,40 @@ MIT licensed. The hosted service at [localcmd.app](https://localcmd.app) (accoun
 | `scheduler_status` | Active/queued work and resource locks |
 | `localhost_request` | Bounded HTTP to allowlisted local hosts only |
 
-## Run with npx (stdio)
+## Claude Desktop extension
+
+Download `local-commander-mcp-agent-<version>.mcpb` from the [latest release](https://github.com/netbka/local-commander-mcp-agent/releases/latest) and open it with Claude Desktop. Choose the folders it may access when asked. No Node.js installation is needed.
+
+## One-command setup (Claude Desktop, Cursor)
 
 Requirements: Node.js 20+.
+
+```bash
+npx -y local-commander-mcp-agent setup --root /path/to/your/projects --client all
+```
+
+This adds a `local-commander` entry to the Claude Desktop and/or Cursor MCP configuration, keeping a timestamped backup of the previous file. Repeat `--root` for more folders, use `--client claude-desktop` or `--client cursor` for one client, `--dry-run` to preview, and `setup --remove` to take the entry out again. Restart the client afterwards.
+
+## Run with npx (stdio)
+
+Requirements: Node.js 20+. Folders the server may access follow `--stdio`:
 
 ```json
 {
   "mcpServers": {
     "local-commander": {
       "command": "npx",
-      "args": ["-y", "local-commander-mcp-agent", "--stdio"],
-      "env": {
-        "LCMCP_ROOTS": "/path/to/your/projects",
-        "LCMCP_OAUTH_STATE_PATH": "/path/to/a/private/state/dir/oauth.json"
-      }
+      "args": ["-y", "local-commander-mcp-agent", "--stdio", "/path/to/your/projects"]
     }
   }
 }
 ```
 
-Claude Code: `claude mcp add local-commander -e LCMCP_ROOTS=/path/to/your/projects -- npx -y local-commander-mcp-agent --stdio`
+On Windows some clients need `"command": "cmd"` with `"args": ["/c", "npx", "-y", ...]`; `setup` writes that form for you.
+
+Claude Code: `claude mcp add local-commander -- npx -y local-commander-mcp-agent --stdio /path/to/your/projects`
+
+`LCMCP_ROOTS` still works instead of folder arguments. In stdio mode local state is kept in `~/.local-commander-mcp-agent` unless `LCMCP_OAUTH_STATE_PATH` is set.
 
 On Windows use `;` between several roots and paths such as `C:\\Users\\you\\source\\repos`. The package includes the small Windows file-read helper, so nothing is compiled at install time.
 
@@ -46,9 +60,7 @@ On Windows use `;` between several roots and paths such as `C:\\Users\\you\\sour
 
 The container is the sandbox: the server only sees the folders you mount under `/workspace`.
 
-```bash
-docker build -t local-commander-mcp-agent .
-```
+The image is published as `ghcr.io/netbka/local-commander-mcp-agent` (tags `latest` and each version). To build it yourself: `docker build -t local-commander-mcp-agent .`
 
 MCP client configuration (Claude Desktop, Cursor, Claude Code, Codex and others):
 
@@ -60,7 +72,7 @@ MCP client configuration (Claude Desktop, Cursor, Claude Code, Codex and others)
       "args": [
         "run", "-i", "--rm",
         "-v", "/path/to/your/projects:/workspace/projects",
-        "local-commander-mcp-agent"
+        "ghcr.io/netbka/local-commander-mcp-agent"
       ]
     }
   }
@@ -77,7 +89,7 @@ The image contains Node.js 22, Git and Python 3. Add tools by extending the imag
 docker run --rm -p 127.0.0.1:17321:17321 \
   -e LCMCP_TOKEN=generate-a-long-random-token \
   -v /path/to/your/projects:/workspace/projects \
-  local-commander-mcp-agent --http
+  ghcr.io/netbka/local-commander-mcp-agent --http
 ```
 
 The image defaults to `--stdio`; any other argument after the image name (here `--http`) replaces it and starts the HTTP server. The endpoint is `http://127.0.0.1:17321/mcp` with `Authorization: Bearer <token>`. Publish the port on `127.0.0.1` only.

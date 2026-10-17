@@ -7,3 +7,5 @@ local-commander.config.json
 .local-commander*
 !.local-commander-standalone.json
 *.log
+*.mcpb
+.mcpb-staging/

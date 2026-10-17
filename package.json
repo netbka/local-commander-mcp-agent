@@ -1,6 +1,7 @@
 {
   "name": "local-commander-mcp-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "mcpName": "io.github.netbka/local-commander-mcp-agent",
   "description": "Self-hosted MCP server for controlled local development access: files, Git, allowlisted commands, processes and localhost. stdio or HTTP.",
   "license": "MIT",
   "type": "module",
@@ -37,7 +38,8 @@
     "pretest": "node scripts/build-owner-bridge.mjs --personal",
     "test": "node --import tsx --test test/**/*.test.ts",
     "prepack": "npm run build",
-    "prepublishOnly": "node -e \"if (!require('fs').statSync('release/personal/OwnerBridge.exe').size) process.exit(1)\""
+    "release:artifacts": "node scripts/release-artifacts.mjs",
+    "prepublishOnly": "npm run build && node -e \"if (!require('fs').statSync('release/personal/OwnerBridge.exe').size) process.exit(1)\""
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",

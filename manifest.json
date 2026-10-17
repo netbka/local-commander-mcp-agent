@@ -1,0 +1,59 @@
+{
+  "manifest_version": "0.3",
+  "name": "local-commander-mcp-agent",
+  "display_name": "Local Commander",
+  "version": "0.1.1",
+  "description": "Files, Git, allowlisted developer commands, dev processes and localhost inside folders you choose.",
+  "long_description": "Local Commander gives the AI controlled access to chosen project folders: bounded file reads and edits, Git status/diff/log, allowlisted developer commands (git, node, npm, python and similar, never a free-form shell), long-running dev processes and localhost HTTP. Secret files such as .env and private keys are blocked by default. No telemetry.",
+  "author": {
+    "name": "Local Commander",
+    "url": "https://github.com/netbka/local-commander-mcp-agent"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/netbka/local-commander-mcp-agent.git"
+  },
+  "homepage": "https://github.com/netbka/local-commander-mcp-agent",
+  "support": "https://github.com/netbka/local-commander-mcp-agent/issues",
+  "license": "MIT",
+  "keywords": [
+    "files",
+    "git",
+    "terminal",
+    "developer-tools",
+    "local"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js",
+        "--stdio",
+        "${user_config.allowed_directories}"
+      ],
+      "env": {}
+    }
+  },
+  "user_config": {
+    "allowed_directories": {
+      "type": "directory",
+      "title": "Allowed folders",
+      "description": "Folders Local Commander may read, edit and run commands in.",
+      "multiple": true,
+      "required": true
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

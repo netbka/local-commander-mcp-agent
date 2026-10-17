@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.netbka/local-commander-mcp-agent",
+  "title": "Local Commander",
+  "description": "Files, Git, allowlisted dev commands, processes and localhost inside folders you choose.",
+  "repository": {
+    "url": "https://github.com/netbka/local-commander-mcp-agent",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "local-commander-mcp-agent",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--stdio",
+          "isRequired": true,
+          "format": "boolean"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "LCMCP_ROOTS",
+          "description": "Folders the server may access, separated by ; on Windows and : elsewhere",
+          "isRequired": true,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/netbka/local-commander-mcp-agent:0.1.1",
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/netbka/local-commander-mcp-agent/releases/download/v0.1.1/local-commander-mcp-agent-0.1.1.mcpb",
+      "fileSha256": "0d8ec69337191d14fa3eeb2c3b70f550eb9e862e47b31c6a0fcd92515cd92e64",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import "dotenv/config";
+import { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -16,7 +18,16 @@ import { ProcessManager } from "./process.js";
 import { ExecutionScheduler } from "./scheduler.js";
 import { registerTools } from "./tools.js";
 
-const VERSION = "0.3.2";
+function packageVersion(): string {
+  try {
+    const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+    return typeof version === "string" && version ? version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const VERSION = packageVersion();
 
 function tokenMatches(provided: string, expected: string): boolean {
   const left = Buffer.from(provided);
@@ -29,12 +40,21 @@ function stdioRequested(): boolean {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "setup") {
+    const { runSetup } = await import("./setup.js");
+    process.exitCode = await runSetup(process.argv.slice(3));
+    return;
+  }
   const stdio = stdioRequested();
   if (stdio) {
     // stdout carries only MCP frames; the pipe belongs to the spawning client, so HTTP auth does not apply.
     console.log = console.error;
     console.info = console.error;
     process.env.LCMCP_AUTH_MODE = "none";
+    // Clients pass multi-folder settings as separate arguments; their working directory is unpredictable.
+    const roots = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+    if (roots.length > 0) process.env.LCMCP_ROOTS = roots.join(path.delimiter);
+    process.env.LCMCP_OAUTH_STATE_PATH ||= path.join(os.homedir(), ".local-commander-mcp-agent", "state.json");
   }
   const config = loadConfig();
   const allowHttpRequest = createNativeHttpBoundary(config);
