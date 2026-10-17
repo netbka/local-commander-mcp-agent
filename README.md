@@ -19,6 +19,29 @@ MIT licensed. The hosted service at [localcmd.app](https://localcmd.app) (accoun
 | `scheduler_status` | Active/queued work and resource locks |
 | `localhost_request` | Bounded HTTP to allowlisted local hosts only |
 
+## Run with npx (stdio)
+
+Requirements: Node.js 20+.
+
+```json
+{
+  "mcpServers": {
+    "local-commander": {
+      "command": "npx",
+      "args": ["-y", "local-commander-mcp-agent", "--stdio"],
+      "env": {
+        "LCMCP_ROOTS": "/path/to/your/projects",
+        "LCMCP_OAUTH_STATE_PATH": "/path/to/a/private/state/dir/oauth.json"
+      }
+    }
+  }
+}
+```
+
+Claude Code: `claude mcp add local-commander -e LCMCP_ROOTS=/path/to/your/projects -- npx -y local-commander-mcp-agent --stdio`
+
+On Windows use `;` between several roots and paths such as `C:\\Users\\you\\source\\repos`. The package includes the small Windows file-read helper, so nothing is compiled at install time.
+
 ## Run with Docker (stdio)
 
 The container is the sandbox: the server only sees the folders you mount under `/workspace`.

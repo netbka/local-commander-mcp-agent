@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import "dotenv/config";
 import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
