@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "local-commander": {
+      "command": "npx",
+      "args": ["-y", "local-commander-mcp-agent", "--stdio", "/path/to/your/projects"]
+    }
+  }
+}
