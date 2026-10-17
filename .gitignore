@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+.env
+.env.*
+local-commander.config.json
+.local-commander*
+!.local-commander-standalone.json
+*.log

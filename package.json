@@ -1,0 +1,37 @@
+{
+  "name": "local-commander-mcp-agent",
+  "version": "0.3.40",
+  "private": true,
+  "description": "Self-hosted MCP server for controlled local development access: files, Git, allowlisted commands, processes and localhost. stdio or HTTP.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "local-commander-mcp-agent": "dist/index.js"
+  },
+  "scripts": {
+    "predev": "node scripts/build-owner-bridge.mjs --personal && node scripts/free-port.mjs",
+    "dev": "tsx src/index.ts",
+    "prebuild": "node scripts/build-owner-bridge.mjs --personal",
+    "build": "tsc -p tsconfig.json",
+    "prestart": "node scripts/free-port.mjs",
+    "start": "node dist/index.js",
+    "stdio": "node dist/index.js --stdio",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "node scripts/build-owner-bridge.mjs --personal",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "dotenv": "^18.0.4",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0"
+  }
+}

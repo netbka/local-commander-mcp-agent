@@ -1,0 +1,60 @@
+{
+  "roots": [
+    "C:\\Users\\YOUR_USER\\source\\repos"
+  ],
+  "server": {
+    "host": "127.0.0.1",
+    "port": 17321,
+    "mcpPath": "/mcp"
+  },
+  "auth": {
+    "mode": "oauth",
+    "publicBaseUrl": "https://localcmd.example.com",
+    "oauthStatePath": ".local-commander-oauth.json",
+    "accessTokenTtlSec": 3600,
+    "refreshTokenTtlSec": 2592000,
+    "authorizationCodeTtlSec": 300,
+    "approvalCodeTtlSec": 900
+  },
+  "files": {
+    "maxReadBytes": 524288,
+    "maxWriteBytes": 1048576,
+    "maxSearchFileBytes": 262144,
+    "allowSensitiveFiles": false
+  },
+  "shell": {
+    "allowedCommands": [
+      "git",
+      "docker",
+      "node",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "python",
+      "python3",
+      "py",
+      "dotnet",
+      "go",
+      "cargo",
+      "rustc",
+      "claude",
+      "codex",
+      "agent",
+      "cursor-agent"
+    ],
+    "maxTimeoutMs": 240000,
+    "maxOutputBytes": 1048576,
+    "maxProcesses": 12
+  },
+  "http": {
+    "allowedHosts": [
+      "127.0.0.1",
+      "localhost",
+      "::1"
+    ],
+    "maxResponseBytes": 1048576,
+    "timeoutMs": 30000
+  }
+}
