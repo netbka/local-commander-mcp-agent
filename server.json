@@ -7,12 +7,12 @@
     "url": "https://github.com/netbka/local-commander-mcp-agent",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "local-commander-mcp-agent",
-      "version": "0.1.1",
+      "version": "0.1.3",
       "transport": {
         "type": "stdio"
       },
@@ -35,15 +35,15 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/netbka/local-commander-mcp-agent:0.1.1",
+      "identifier": "ghcr.io/netbka/local-commander-mcp-agent:0.1.3",
       "transport": {
         "type": "stdio"
       }
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/netbka/local-commander-mcp-agent/releases/download/v0.1.1/local-commander-mcp-agent-0.1.1.mcpb",
-      "fileSha256": "0d8ec69337191d14fa3eeb2c3b70f550eb9e862e47b31c6a0fcd92515cd92e64",
+      "identifier": "https://github.com/netbka/local-commander-mcp-agent/releases/download/v0.1.3/local-commander-mcp-agent-0.1.3.mcpb",
+      "fileSha256": "36012c8b3e364f294d29ba197552b9f63b1e4f8d981511b4141b3b1e446bc31a",
       "transport": {
         "type": "stdio"
       }

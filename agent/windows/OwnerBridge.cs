@@ -27,6 +27,13 @@ sealed class OwnerBridge
                 if (!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit < 1 || limit > 16777216) return Fail("ARGUMENT_INVALID");
                 return ReadFile(limit, true);
             }
+            if (args.Length == 3 && args[0] == "read-files")
+            {
+                int limit, total;
+                if (!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit < 1 || limit > 1048576 ||
+                    !Int32.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out total) || total < 1 || total > 16777216) return Fail("ARGUMENT_INVALID");
+                return ReadFiles(limit, total);
+            }
             if (args.Length != 1) return Fail("ARGUMENT_INVALID");
             switch (args[0])
             {
@@ -82,39 +89,78 @@ sealed class OwnerBridge
     static int ReadFile(int limit, bool prefix)
     {
         string target = Unescape(Extract(ReadBounded(), "path"));
+        byte[] bytes;
+        long size, written;
+        string error = ReadOne(target, limit, prefix, out bytes, out size, out written);
+        if (error != null) return Fail(error);
+        if (prefix)
+            Console.Out.Write("{\"data\":\"" + Convert.ToBase64String(bytes) + "\",\"size\":" + size.ToString(CultureInfo.InvariantCulture) +
+                ",\"modifiedAt\":\"" + DateTime.FromFileTimeUtc(written).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) +
+                "\",\"truncated\":" + (size > limit ? "true" : "false") + "}");
+        else using (Stream output = Console.OpenStandardOutput()) output.Write(bytes, 0, bytes.Length);
+        return 0;
+    }
+
+    // Up to 64 canonical paths in one process, each read exactly like read-file. One line per path, in
+    // order: {"data":"<base64>"} or {"error":"<code>"}. A file that does not fit the remaining total is not read.
+    static int ReadFiles(int limit, int total)
+    {
+        string[] targets = ExtractPaths(ReadBounded());
+        if (targets.Length < 1 || targets.Length > 64) return Fail("ARGUMENT_INVALID");
+        long used = 0;
+        foreach (string target in targets)
+        {
+            byte[] bytes = null;
+            long size, written;
+            string error;
+            try { error = ReadOne(target, (int)Math.Min(limit, total - used), false, out bytes, out size, out written); }
+            catch (UnauthorizedAccessException) { error = "ACCESS_DENIED"; }
+            catch (IOException) { error = "IO_FAILED"; }
+            catch (Exception) { error = "IO_FAILED"; }
+            if (error != null) { Console.Out.Write("{\"error\":\"" + error + "\"}\n"); continue; }
+            used += bytes.Length;
+            Console.Out.Write("{\"data\":\"" + Convert.ToBase64String(bytes) + "\"}\n");
+        }
+        Console.Out.Flush();
+        return 0;
+    }
+
+    // Returns null with the bytes, or a result code. No write/delete sharing: bytes and final path come
+    // from this one handle, and the final path and write time must match before and after the read.
+    static string ReadOne(string target, int limit, bool prefix, out byte[] bytes, out long size, out long written)
+    {
+        bytes = null;
+        size = 0;
+        written = 0;
         if (target.Length > 32760 || HasControl(target) || !Path.IsPathRooted(target) ||
             target.StartsWith(@"\\?\") || target.StartsWith(@"\\.\") || target.IndexOf(':', 2) >= 0 ||
-            !String.Equals(target, Path.GetFullPath(target), StringComparison.Ordinal)) return Fail("PATH_INVALID");
+            !String.Equals(target, Path.GetFullPath(target), StringComparison.Ordinal)) return "PATH_INVALID";
         try
         {
-            // No write/delete sharing: bytes and final path come from this one handle.
             using (var file = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                if (GetFileType(file.SafeFileHandle) != 1 || !SameOpenedPath(file, target)) return Fail("FILE_CHANGED");
-                long size = file.Length, created, accessed, written;
-                if (!GetFileTime(file.SafeFileHandle, out created, out accessed, out written)) return Fail("IO_FAILED");
-                if (!prefix && size > limit) return Fail("FILE_UNSUPPORTED_OR_TOO_LARGE");
-                byte[] bytes = new byte[(int)Math.Min(size, limit)];
+                if (GetFileType(file.SafeFileHandle) != 1 || !SameOpenedPath(file, target)) return "FILE_CHANGED";
+                long created, accessed;
+                size = file.Length;
+                if (!GetFileTime(file.SafeFileHandle, out created, out accessed, out written)) return "IO_FAILED";
+                if (!prefix && size > limit) return "FILE_UNSUPPORTED_OR_TOO_LARGE";
+                byte[] buffer = new byte[(int)Math.Min(size, limit)];
                 int count = 0;
-                while (count < bytes.Length)
+                while (count < buffer.Length)
                 {
-                    int read = file.Read(bytes, count, bytes.Length - count);
+                    int read = file.Read(buffer, count, buffer.Length - count);
                     if (read == 0) break;
                     count += read;
                 }
                 long finalWritten;
-                if (count != bytes.Length || file.Length != size || !SameOpenedPath(file, target) ||
-                    !GetFileTime(file.SafeFileHandle, out created, out accessed, out finalWritten) || finalWritten != written) return Fail("FILE_CHANGED");
-                if (prefix)
-                    Console.Out.Write("{\"data\":\"" + Convert.ToBase64String(bytes) + "\",\"size\":" + size.ToString(CultureInfo.InvariantCulture) +
-                        ",\"modifiedAt\":\"" + DateTime.FromFileTimeUtc(written).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) +
-                        "\",\"truncated\":" + (size > limit ? "true" : "false") + "}");
-                else using (Stream output = Console.OpenStandardOutput()) output.Write(bytes, 0, count);
-                return 0;
+                if (count != buffer.Length || file.Length != size || !SameOpenedPath(file, target) ||
+                    !GetFileTime(file.SafeFileHandle, out created, out accessed, out finalWritten) || finalWritten != written) return "FILE_CHANGED";
+                bytes = buffer;
+                return null;
             }
         }
-        catch (FileNotFoundException) { return Fail("ENOENT"); }
-        catch (DirectoryNotFoundException) { return Fail("ENOENT"); }
+        catch (FileNotFoundException) { return "ENOENT"; }
+        catch (DirectoryNotFoundException) { return "ENOENT"; }
     }
 
     static int Crypt(bool protect)
@@ -401,6 +447,17 @@ sealed class OwnerBridge
         Match match = Regex.Match(json, "^\\s*\\{\\s*\\\"" + name + "\\\"\\s*:\\s*\\\"((?:[^\\\"\\\\]|\\\\.)*)\\\"\\s*\\}\\s*$");
         if (!match.Success) throw new InvalidDataException();
         return match.Groups[1].Value;
+    }
+
+    static string[] ExtractPaths(string json)
+    {
+        const string item = "\"(?:[^\"\\\\]|\\\\.)*\"";
+        Match match = Regex.Match(json, "^\\s*\\{\\s*\"paths\"\\s*:\\s*\\[\\s*(" + item + "(?:\\s*,\\s*" + item + ")*)\\s*\\]\\s*\\}\\s*$");
+        if (!match.Success) throw new InvalidDataException();
+        MatchCollection items = Regex.Matches(match.Groups[1].Value, item);
+        var paths = new string[items.Count];
+        for (int i = 0; i < items.Count; i++) paths[i] = Unescape(items[i].Value.Substring(1, items[i].Value.Length - 2));
+        return paths;
     }
 
     static string Unescape(string value)

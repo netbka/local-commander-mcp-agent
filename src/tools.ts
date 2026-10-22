@@ -154,6 +154,43 @@ function assertCommandSuccess(result: Awaited<ReturnType<typeof executeCommand>>
   }
 }
 
+type TextEncoding = "utf8" | "utf8-bom" | "utf16le" | "utf16be";
+const BINARY_FILE = "BINARY_FILE_NOT_SUPPORTED: the file is not UTF-8 or UTF-16 text";
+
+/** Exact decoding: Windows PowerShell 5.1 redirection writes UTF-16 with a BOM; Visual Studio writes UTF-8 with
+ * a BOM. A prefix cut by a read limit may end inside a character, which is dropped. Anything else that does not
+ * decode throws, so an edit never rewrites bytes it could not read. */
+function decodeText(value: Buffer, partial = false): { text: string; encoding: TextEncoding } {
+  const encoding: TextEncoding = value[0] === 0xff && value[1] === 0xfe ? "utf16le" : value[0] === 0xfe && value[1] === 0xff ? "utf16be" : value[0] === 0xef && value[1] === 0xbb && value[2] === 0xbf ? "utf8-bom" : "utf8";
+  let body = Buffer.from(value.subarray(encoding === "utf8" ? 0 : encoding === "utf8-bom" ? 3 : 2));
+  if (encoding === "utf16le" || encoding === "utf16be") {
+    if (body.length % 2) { if (!partial) throw new Error(BINARY_FILE); body = body.subarray(0, body.length - 1); }
+    if (encoding === "utf16be") body.swap16();
+  }
+  let text: string;
+  try { text = new TextDecoder(encoding.startsWith("utf16") ? "utf-16le" : "utf-8", { fatal: true, ignoreBOM: true }).decode(body, { stream: partial }); }
+  catch { throw new Error(BINARY_FILE); }
+  if (text.includes("\0")) throw new Error(BINARY_FILE);
+  return { text, encoding };
+}
+
+/** Re-encode edited text the way the file was stored, BOM included. */
+function encodeText(text: string, encoding: TextEncoding): Buffer {
+  if (encoding === "utf8" || encoding === "utf8-bom") return Buffer.from((encoding === "utf8-bom" ? "\ufeff" : "") + text, "utf8");
+  // Lone surrogates become U+FFFD, as Buffer's UTF-8 encoder does.
+  const bytes = Buffer.from("\ufeff" + text.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd"), "utf16le");
+  return encoding === "utf16be" ? bytes.swap16() : bytes;
+}
+
+/** Reads and searches keep their lossy view of other 8-bit encodings (for example Windows-1251); only edits need exact text. */
+function readableText(value: Buffer, partial: boolean): string {
+  try { return decodeText(value, partial).text; }
+  catch {
+    if (value.includes(0)) throw new Error("Binary file reading is not supported");
+    return value.toString("utf8");
+  }
+}
+
 async function readTextFile(
   config: AppConfig,
   guard: PathGuard,
@@ -162,14 +199,16 @@ async function readTextFile(
   endLine?: number
 ): Promise<Record<string, unknown>> {
   const file = await readFilePrefix(guard, inputPath, config.files.maxReadBytes);
-  const buffer = file.data;
-
-  if (buffer.includes(0)) throw new Error("Binary file reading is not supported");
-  const fullText = buffer.toString("utf8");
+  const fullText = readableText(file.data, file.truncated);
   const lines = fullText.split(/\r?\n/);
   const first = startLine ? Math.max(1, startLine) : 1;
   const last = endLine ? Math.min(lines.length, endLine) : lines.length;
-  if (last < first) throw new Error("endLine must be greater than or equal to startLine");
+  if (last < first) {
+    if (endLine !== undefined && endLine < first) throw new Error("INVALID_LINE_RANGE: endLine must be greater than or equal to startLine");
+    throw new Error(file.truncated
+      ? `INVALID_LINE_RANGE: line ${first} is past the first ${config.files.maxReadBytes} bytes, the most this server reads (files.maxReadBytes)`
+      : `INVALID_LINE_RANGE: the file has ${lines.length} lines`);
+  }
 
   return {
     path: file.path,
@@ -180,6 +219,17 @@ async function readTextFile(
     content: lines.slice(first - 1, last).join("\n"),
     truncated: file.truncated
   };
+}
+
+/** Entries that vanished or that this account may not open: a recursive walk skips them, as it skips other unreadable entries. */
+function skippable(error: unknown): boolean {
+  return ["ENOENT", "ENOTDIR", "EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "");
+}
+
+/** The requested folder must be readable; a subfolder that cannot be listed is skipped instead of failing the whole walk. */
+async function readSubdirectory(root: string, current: string) {
+  try { return await readdir(current, { withFileTypes: true }); }
+  catch (error) { if (current !== root && skippable(error)) return []; throw error; }
 }
 
 async function readResponseBody(response: Response, maxBytes: number): Promise<{
@@ -309,11 +359,12 @@ export function registerTools(
 
         async function walk(current: string, depth: number): Promise<void> {
           if (result.length >= maxEntries) return;
-          const entries = await readdir(current, { withFileTypes: true });
+          const entries = await readSubdirectory(root, current);
           for (const entry of entries) {
             if (result.length >= maxEntries) return;
             const full = path.join(current, entry.name);
-            const info = await lstat(full);
+            let info;
+            try { info = await lstat(full); } catch (error) { if (skippable(error)) continue; throw error; }
             result.push({
               path: path.relative(root, full) || ".",
               type: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file",
@@ -365,10 +416,12 @@ export function registerTools(
         );
         const matcher = regex ? new RegexSearchWorker(query, caseSensitive ? "" : "i") : undefined;
         const needle = caseSensitive ? query : query.toLowerCase();
+        // A file over files.maxSearchFileBytes is not searched; the result then says it is incomplete.
+        let skippedLarge = false;
 
         async function walk(current: string): Promise<void> {
           if (results.length >= maxResults) return;
-          const entries = await readdir(current, { withFileTypes: true });
+          const entries = await readSubdirectory(root, current);
           for (const entry of entries) {
             if (results.length >= maxResults) return;
             const full = path.join(current, entry.name);
@@ -387,13 +440,12 @@ export function registerTools(
             let text: string;
             try {
               const file = await readFilePrefix(guard, full, config.files.maxSearchFileBytes);
-              if (file.truncated) continue;
-              text = file.data.toString("utf8");
+              if (file.truncated) { skippedLarge = true; continue; }
+              text = readableText(file.data, false);
             } catch (error) {
               if (error instanceof Error && error.message.startsWith("FILE_READ_")) throw error;
               continue;
             }
-            if (text.includes("\0")) continue;
             const lines = text.split(/\r?\n/);
 
             if (matcher) {
@@ -422,7 +474,7 @@ export function registerTools(
         } finally {
           matcher?.close();
         }
-        return { root, query, results, truncated: results.length >= maxResults };
+        return { root, query, results, truncated: results.length >= maxResults || skippedLarge };
       }, { signal: ctx?.mcpReq.signal })
   );
 
@@ -471,17 +523,24 @@ export function registerTools(
           throw new Error(`File exceeds maxWriteBytes (${config.files.maxWriteBytes})`);
         }
 
-        const original = file.data.toString("utf8");
-        const pieces = original.split(oldText);
+        // Exact decoding only: text that does not decode would be written back as U+FFFD.
+        const original = decodeText(file.data);
+        let pieces = original.text.split(oldText), replacement = newText;
+        // AI clients send LF line breaks; Windows checkouts are usually CRLF. Only when the exact text is absent,
+        // match it with CRLF breaks and write the new text with CRLF too (owner decision 2026-10-21).
+        if (pieces.length === 1 && oldText.includes("\n") && !oldText.includes("\r") && original.text.includes("\r\n")) {
+          const crlf = (value: string) => value.replace(/\r?\n/g, "\r\n"), matched = original.text.split(crlf(oldText));
+          if (matched.length > 1) { pieces = matched; replacement = crlf(newText); }
+        }
         const occurrences = pieces.length - 1;
         if (occurrences === 0) throw new Error("oldText was not found");
         if (!replaceAll && occurrences !== 1) {
           throw new Error(`oldText occurs ${occurrences} times; make the match more specific or set replaceAll=true`);
         }
 
-        const updated = pieces.join(newText);
+        const updated = encodeText(pieces.join(replacement), original.encoding);
 
-        if (Buffer.byteLength(updated) > config.files.maxWriteBytes) {
+        if (updated.length > config.files.maxWriteBytes) {
           throw new Error(`Updated file exceeds maxWriteBytes (${config.files.maxWriteBytes})`);
         }
 
