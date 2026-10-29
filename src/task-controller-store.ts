@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { open, rename, unlink } from "node:fs/promises";
+import os from "node:os";
 import type { FileHandle } from "node:fs/promises";
 import type { PathGuard } from "./guard.js";
 import { commitTextFile } from "./file-write.js";
@@ -43,13 +44,19 @@ function parseLock(text: string): LockRecord | undefined {
 function sameLock(a: LockRecord, b: LockRecord): boolean {
   return a.pid === b.pid && a.token === b.token && a.acquiredAt === b.acquiredAt;
 }
-function ownerIsGone(pid: number): boolean {
-  if (pid === process.pid) return false;
+// After a reboot the OS can reuse an old PID for another process, so a lock older than the last boot
+// is stale; EPERM = the PID belongs to another account (the server runs as this user), also not our owner.
+function ownerIsGone(record: LockRecord): boolean {
+  if (record.pid === process.pid) return false;
+  const uptime = os.uptime();
+  if (uptime > 0 && Number.isFinite(record.acquiredAt) && record.acquiredAt <= Date.now()
+    && record.acquiredAt < Date.now() - uptime * 1000 - 5000) return true;
   try {
-    process.kill(pid, 0);
+    process.kill(record.pid, 0);
     return false;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH";
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ESRCH" || code === "EPERM";
   }
 }
 async function readLock(path: string): Promise<{ kind: "missing" } | { kind: "unknown" } | { kind: "record"; record: LockRecord }> {
@@ -111,7 +118,7 @@ export class FileControllerStore implements ControllerStore {
       }
       const existing = await readLock(gatePath);
       if (existing.kind === "missing") continue;
-      if (existing.kind !== "record" || !ownerIsGone(existing.record.pid)) return undefined;
+      if (existing.kind !== "record" || !ownerIsGone(existing.record)) return undefined;
       const tombPath = await this.guard.resolveForWrite(gatePath + ".stale." + randomUUID());
       try {
         await rename(gatePath, tombPath);
@@ -144,7 +151,7 @@ export class FileControllerStore implements ControllerStore {
           throw Error("CONTROLLER_STORE_IO");
         }
       }
-      if (existing.kind !== "record" || !ownerIsGone(existing.record.pid)) throw Error("CONTROLLER_STORE_BUSY");
+      if (existing.kind !== "record" || !ownerIsGone(existing.record)) throw Error("CONTROLLER_STORE_BUSY");
 
       const confirmed = await readLock(lockPath);
       if (confirmed.kind !== "record" || !sameLock(confirmed.record, existing.record)) throw Error("CONTROLLER_STORE_BUSY");

@@ -91,7 +91,7 @@ Yes. `npx -y local-commander-mcp-agent setup --remove` takes it out of Claude De
 <details>
 <summary><b>What about several computers or a team?</b></summary>
 
-This open-source edition runs one computer at a time. The hosted service at [localcmd.app](https://localcmd.app) connects ChatGPT, Claude or your own agent to all your Windows PCs at once, runs tasks on several machines in parallel and shows which computer ran what. It is a separate product and is not needed for this one.
+This open-source edition runs one computer at a time. The hosted service at [localcmd.app](https://localcmd.app) connects ChatGPT, Claude or your own agent to all your computers at once, runs tasks on several machines in parallel and shows which computer ran what. It is a separate product and is not needed for this one.
 </details>
 
 ---

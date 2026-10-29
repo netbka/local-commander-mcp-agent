@@ -1,6 +1,6 @@
 {
   "name": "local-commander-mcp-agent",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "mcpName": "io.github.netbka/local-commander-mcp-agent",
   "description": "Self-hosted MCP server for controlled local development access: files, Git, allowlisted commands, processes and localhost. stdio or HTTP.",
   "license": "MIT",

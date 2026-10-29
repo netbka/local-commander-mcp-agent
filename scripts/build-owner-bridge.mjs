@@ -29,7 +29,7 @@ if (fs.realpathSync(outputDir).toLowerCase() !== outputDir.toLowerCase()) throw 
 if (fs.existsSync(output) && (!fs.lstatSync(output).isFile() || fs.lstatSync(output).isSymbolicLink())) throw Error("BUILD_PATH_INVALID");
 const args = [
   "/nologo", "/target:exe", "/optimize+", "/out:" + output,
-  "/r:System.Security.dll", "/r:System.Windows.Forms.dll", source
+  "/r:System.Security.dll", "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", source
 ];
 // Personal builds run before dev/build/test; a running Local Commander locks the exe, so skip
 // recompiling identical inputs. A pre-stamp exe is adopted only when newer than its source.

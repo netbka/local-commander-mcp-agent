@@ -8,6 +8,8 @@ using System.Security.Principal;
 using System.Runtime.InteropServices;
 using System.Globalization;
 using System.Windows.Forms;
+using System.Drawing;
+using System.Drawing.Imaging;
 using Microsoft.Win32.SafeHandles;
 
 sealed class OwnerBridge
@@ -33,6 +35,13 @@ sealed class OwnerBridge
                 if (!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit < 1 || limit > 1048576 ||
                     !Int32.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out total) || total < 1 || total > 16777216) return Fail("ARGUMENT_INVALID");
                 return ReadFiles(limit, total);
+            }
+            if (args.Length == 3 && args[0] == "screenshot")
+            {
+                int edge, bytes;
+                if (!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out edge) || edge < 320 || edge > 4096 ||
+                    !Int32.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out bytes) || bytes < 16384 || bytes > 4194304) return Fail("ARGUMENT_INVALID");
+                return Screenshot(edge, bytes);
             }
             if (args.Length != 1) return Fail("ARGUMENT_INVALID");
             switch (args[0])
@@ -247,6 +256,9 @@ sealed class OwnerBridge
     static int ChooseAccess()
     {
         if (!Environment.UserInteractive) return Fail("HEADLESS_DIALOG");
+        // A helper can approve this computer from another device, so name the account before any access is chosen.
+        string account = new UTF8Encoding(false, true).GetString(Convert.FromBase64String(Extract(ReadBounded(), "data")));
+        if (account.Length < 3 || account.Length > 320 || Regex.IsMatch(account, "[\\u0000-\\u001f\\u007f]")) return Fail("INPUT_INVALID");
         Application.EnableVisualStyles();
         var drives = new System.Collections.Generic.List<string>();
         foreach (var drive in DriveInfo.GetDrives())
@@ -259,6 +271,9 @@ sealed class OwnerBridge
         drives.Sort(StringComparer.OrdinalIgnoreCase);
         using (var choice = CreateAccessChoice(String.Join(", ", drives.ToArray())))
         {
+            var summary = choice.Controls.Find("access-summary", true)[0];
+            summary.Text = "Local Commander account: " + account + "\nContinue only if this is your account, or the account of someone you know who is helping you. Otherwise choose Cancel and nothing is shared.\n\n" + summary.Text;
+            choice.Height += 60;
             DialogResult result = choice.ShowDialog();
             if (result == DialogResult.Yes && drives.Count > 0)
             {
@@ -328,7 +343,14 @@ sealed class OwnerBridge
                     FileAttributes attributes = File.GetAttributes(entry);
                     if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || new FileInfo(entry).Length > 32768) return Fail("PATH_INVALID");
                 }
-                if (!memoryFile && name != "owner-state.marker" && name != "owner-state.dat" && name != "owner-state.lock" && name != "journal" && name != "agent-process.json" && name != "optimization" && name != ".local-commander")
+                // take_screenshot owner switches: small regular files beside the store.
+                bool switchFile = name == "screenshot-acceptance-enabled" || name == "screenshot-disabled-by-owner";
+                if (switchFile)
+                {
+                    FileAttributes attributes = File.GetAttributes(entry);
+                    if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || new FileInfo(entry).Length > 4096) return Fail("PATH_INVALID");
+                }
+                if (!memoryFile && !switchFile && name != "owner-state.marker" && name != "owner-state.dat" && name != "owner-state.lock" && name != "journal" && name != "agent-process.json" && name != "optimization" && name != ".local-commander")
                     return Fail("PATH_UNKNOWN");
                 if (name == "agent-process.json" || name == "optimization" || name == ".local-commander")
                 {
@@ -378,14 +400,50 @@ sealed class OwnerBridge
             int pid; DateTimeOffset createdAt;
             if (!match.Success || !Int32.TryParse(match.Groups[1].Value, out pid) ||
                 !DateTimeOffset.TryParseExact(match.Groups[2].Value, "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out createdAt)) return false;
-            try { using (var owner = System.Diagnostics.Process.GetProcessById(pid)) { if (!owner.HasExited) return true; } }
-            catch (ArgumentException) { /* The recorded process no longer exists. */ }
+            if (LockOwnerAlive(pid, createdAt)) return true;
             abandoned = lockPath + ".abandoned." + Guid.NewGuid().ToString("N");
             File.Move(lockPath, abandoned);
         }
         // Only the claimed transient lock is removed; never any journal entry.
         File.Delete(abandoned);
         return true;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetProcessTimes(IntPtr process, out long created, out long exited, out long kernel, out long user);
+
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+
+    // The agent writes journal.lock as this user right after it starts. Windows reuses PIDs (always across a
+    // reboot), so a live PID alone is not the owner: the owner is still running, this user can open it,
+    // and it started no later than the lock. Another account's process (access denied) is never the agent.
+    // When the answer is unclear the lock stays, which fails as JOURNAL_LOCKED and never removes work.
+    static bool LockOwnerAlive(int pid, DateTimeOffset createdAt)
+    {
+        IntPtr handle = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+        if (handle == IntPtr.Zero)
+        {
+            int error = Marshal.GetLastWin32Error();
+            return error != 5 /* ERROR_ACCESS_DENIED */ && error != 87 /* ERROR_INVALID_PARAMETER: no such process */;
+        }
+        try
+        {
+            uint code;
+            if (!GetExitCodeProcess(handle, out code)) return true;
+            if (code != 259 /* STILL_ACTIVE */) return false;
+            long created, exited, kernel, user;
+            if (!GetProcessTimes(handle, out created, out exited, out kernel, out user)) return true;
+            // createdAt has millisecond precision and is written after the process started.
+            return DateTime.FromFileTimeUtc(created) <= createdAt.UtcDateTime.AddSeconds(1);
+        }
+        finally { CloseHandle(handle); }
     }
 
     static bool AllowedDirectory(string target)
@@ -484,6 +542,76 @@ sealed class OwnerBridge
     static string JsonString(string value)
     {
         return value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
+    }
+
+    [DllImport("user32.dll")]
+    static extern bool SetProcessDPIAware();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool SwitchDesktop(IntPtr desktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool CloseDesktop(IntPtr desktop);
+
+    // Primary display of this interactive session as one JPEG within maxBytes. The secure desktop
+    // (lock screen, UAC prompt) is not readable: report it instead of returning a stale or black image.
+    static int Screenshot(int maxEdge, int maxBytes)
+    {
+        SetProcessDPIAware();
+        IntPtr input = OpenInputDesktop(0, false, 0x0100);
+        if (input == IntPtr.Zero) return Fail("SCREEN_UNAVAILABLE");
+        bool visible = SwitchDesktop(input);
+        CloseDesktop(input);
+        if (!visible) return Fail("SCREEN_LOCKED");
+        Screen primary = Screen.PrimaryScreen;
+        if (primary == null) return Fail("SCREEN_UNAVAILABLE");
+        Rectangle bounds = primary.Bounds;
+        if (bounds.Width < 1 || bounds.Height < 1) return Fail("SCREEN_UNAVAILABLE");
+        ImageCodecInfo jpeg = null;
+        foreach (ImageCodecInfo codec in ImageCodecInfo.GetImageEncoders()) if (codec.FormatID == ImageFormat.Jpeg.Guid) jpeg = codec;
+        if (jpeg == null) return Fail("SCREEN_ENCODER_UNAVAILABLE");
+        using (Bitmap full = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb))
+        {
+            try { using (Graphics g = Graphics.FromImage(full)) g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, CopyPixelOperation.SourceCopy); }
+            catch (System.ComponentModel.Win32Exception) { return Fail("SCREEN_UNAVAILABLE"); }
+            int[] edges = { maxEdge, 1280, 1024, 800, 640 };
+            long[] qualities = { 75, 60, 45, 35 };
+            foreach (int candidate in edges)
+            {
+                if (candidate > maxEdge) continue;
+                double scale = Math.Min(1.0, (double)candidate / Math.Max(bounds.Width, bounds.Height));
+                int width = Math.Max(1, (int)Math.Round(bounds.Width * scale)), height = Math.Max(1, (int)Math.Round(bounds.Height * scale));
+                using (Bitmap scaled = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+                {
+                    using (Graphics g = Graphics.FromImage(scaled))
+                    {
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(full, 0, 0, width, height);
+                    }
+                    foreach (long quality in qualities)
+                    {
+                        byte[] data;
+                        using (MemoryStream stream = new MemoryStream())
+                        using (EncoderParameters parameters = new EncoderParameters(1))
+                        {
+                            parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+                            scaled.Save(stream, jpeg, parameters);
+                            data = stream.ToArray();
+                        }
+                        if (data.Length > maxBytes) continue;
+                        Console.Out.Write("{\"width\":" + width.ToString(CultureInfo.InvariantCulture) + ",\"height\":" + height.ToString(CultureInfo.InvariantCulture) +
+                            ",\"sourceWidth\":" + bounds.Width.ToString(CultureInfo.InvariantCulture) + ",\"sourceHeight\":" + bounds.Height.ToString(CultureInfo.InvariantCulture) +
+                            ",\"quality\":" + quality.ToString(CultureInfo.InvariantCulture) + ",\"data\":\"" + Convert.ToBase64String(data) + "\"}");
+                        Console.Out.Flush();
+                        return 0;
+                    }
+                }
+            }
+        }
+        return Fail("SCREENSHOT_TOO_LARGE");
     }
 
     static int Fail(string code)
