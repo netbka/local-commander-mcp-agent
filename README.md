@@ -11,6 +11,7 @@ You choose the folders. No account, no cloud, no telemetry.
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed)](https://github.com/netbka/local-commander-mcp-agent/pkgs/container/local-commander-mcp-agent)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-6e56cf)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.netbka/local-commander-mcp-agent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![M8ven Score](https://m8ven.ai/badge/mcp/netbka-local-commander-mcp-agent-iuyrvm?variant=verified)](https://m8ven.ai/mcp/netbka-local-commander-mcp-agent-iuyrvm?s=readme)
 
 [Get started](#get-started) · [What people use it for](#what-people-use-it-for) · [Why Local Commander](#why-local-commander) · [Questions](#before-you-install) · [Technical reference](#technical-reference)
 
